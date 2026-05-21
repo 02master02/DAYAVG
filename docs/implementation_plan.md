@@ -2,39 +2,43 @@
 
 ## 总体思路
 
-当前仓库为空仓库，仅启用了工作流技能，没有给出具体产品目标。因此本轮采用最小安全初始化方案：先建立规范文档、目录结构和后续交接信息，让下一轮真实开发可以直接在统一约束下开始。
+继续使用 Flask 做服务端渲染，保持局域网部署简单。当前这一轮在已有“退役”能力基础上，把“退役日期”和“退役备注”提升为正式数据字段，并在资产卡片内提供独立的退役设置表单。
 
 ## 模块拆分
 
-| File | Responsibility | Status |
+| 文件 | 职责 | 状态 |
 |---|---|---|
-| `README.md` | 仓库入口说明 | created |
-| `requirements.txt` | 预留依赖声明 | created |
-| `docs/task_goal.md` | 记录用户目标、输入输出、约束、验收标准 | created |
-| `docs/implementation_plan.md` | 记录结构设计和执行步骤 | created |
-| `docs/progress_log.md` | 记录本轮变更和验证 | created |
-| `docs/project_memory.md` | 为新对话保留交接记忆 | created |
-| `docs/usage.md` | 记录当前使用方式和后续操作入口 | created |
-| `src/__init__.py` | 预留源码目录 | created |
-| `tests/__init__.py` | 预留测试目录 | created |
-| `outputs/.gitkeep` | 保留输出目录 | created |
+| `src/app.py` | Flask 入口、路由、页面上下文、编辑和退役流程 | completed |
+| `src/dayavg/config.py` | 默认配置与测试日期覆盖 | completed |
+| `src/dayavg/services/calculator.py` | 动态持有天数、日均成本和冻结逻辑 | completed |
+| `src/dayavg/services/presentation.py` | 汇总指标、图标分类和页面展示字段 | completed |
+| `src/dayavg/services/validation.py` | 新增、修改、退役设置表单校验 | completed |
+| `src/dayavg/storage/repository.py` | SQLite 初始化、查询、修改和退役字段存储 | completed |
+| `templates/index.html` | 仪表盘页面、编辑表单、退役设置表单 | completed |
+| `static/styles.css` | 页面样式、状态标签、退役设置区域样式 | completed |
+| `tests/test_services.py` | 计算、分类、退役设置校验测试 | completed |
+| `tests/test_app.py` | 页面访问、新增、修改、退役、恢复测试 | completed |
 
-## 执行步骤
+## 执行结果
 
-1. 检查仓库现状、技能说明与附加规则
-2. 在不覆盖用户文件的前提下创建文档与基础目录
-3. 记录当前默认假设、下一步建议和继续开发提示
-4. 验证项目结构已落盘并更新进度文档
+1. 已更新文档，将目标扩展到 DayAvg V1.4
+2. 已为数据库兼容增加 `retired_note` 字段，并保留旧库自动迁移能力
+3. 已新增退役设置表单校验，支持手动退役日期和退役备注
+4. 已新增退役设置页面状态和保存逻辑
+5. 已更新模板和样式，支持在资产卡中编辑退役信息
+6. 已补充自动化测试并通过
 
 ## 风险点
 
-- 用户尚未给出实际产品需求，若现在直接写业务代码，方向风险很高
-- 当前环境中的 `python.exe` 不可直接运行，因此技能自带初始化脚本未执行
-- 测试框架与运行入口尚未定义，只能先提供结构而非真实测试套件
+- 旧数据库需要安全补字段，不能破坏现有历史记录
+- 退役日期必须同时受购买日期和当前日期约束
+- 页面上同时存在新增、修改、退役三类表单，状态隔离必须清楚
 
 ## 测试方案
 
-| 测试 | 命令 | 预期结果 |
+| 测试 | 命令 | 结果 |
 |---|---|---|
-| 结构检查 | `Get-ChildItem -Recurse` | 能看到 `docs/`, `src/`, `tests/`, `outputs/` 和必需文件 |
-| Git 变更检查 | `git status --short` | 能看到新增的骨架文件 |
+| 服务层测试 | `D:\Anaconda\python.exe -m unittest tests.test_services -v` | 通过 |
+| Web 集成测试 | `D:\Anaconda\python.exe -m unittest tests.test_app -v` | 通过 |
+| 全量测试 | `D:\Anaconda\python.exe -m unittest discover -s tests -v` | 通过，23 个测试全部通过 |
+| 手工运行 | `D:\Anaconda\python.exe src/app.py` | 可在页面设置退役日期与备注，退役后冻结，恢复后继续更新 |

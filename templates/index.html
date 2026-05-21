@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>DayAvg</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+    <main class="app-shell">
+        <header class="topbar">
+            <div>
+                <p class="topbar-label">DayAvg</p>
+                <h1>资产日均观察</h1>
+            </div>
+            <div class="topbar-icons" aria-hidden="true">
+                <span class="topbar-icon">Σ</span>
+                <span class="topbar-icon">μ</span>
+            </div>
+        </header>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                <section class="flash-stack">
+                    {% for category, message in messages %}
+                        <div class="flash flash-{{ category }}">{{ message }}</div>
+                    {% endfor %}
+                </section>
+            {% endif %}
+        {% endwith %}
+
+        <section class="metrics-board">
+            <div class="metric-pair">
+                <article class="metric-tile metric-hero">
+                    <div class="metric-title-row">
+                        <span>总物品价值</span>
+                        <span class="metric-glyph">Σ</span>
+                    </div>
+                    <strong>{{ summary.total_price_display }}</strong>
+                </article>
+                <article class="metric-tile metric-hero">
+                    <div class="metric-title-row">
+                        <span>总日均</span>
+                        <span class="metric-glyph">μ</span>
+                    </div>
+                    <strong>{{ summary.total_daily_cost_display }}</strong>
+                </article>
+            </div>
+            <div class="metric-grid">
+                <article class="metric-tile">
+                    <span>物品总数</span>
+                    <strong>{{ summary.item_count }}</strong>
+                </article>
+                <article class="metric-tile">
+                    <span>使用中</span>
+                    <strong>{{ summary.active_count }}</strong>
+                </article>
+                <article class="metric-tile">
+                    <span>已退役</span>
+                    <strong>{{ summary.retired_count }}</strong>
+                </article>
+                <article class="metric-tile">
+                    <span>每件均价</span>
+                    <strong>{{ summary.average_price_display }}</strong>
+                </article>
+            </div>
+        </section>
+
+        <section class="workbench">
+            <section class="compose-panel">
+                <div class="section-head">
+                    <div>
+                        <p class="section-kicker">录入台</p>
+                        <h2>新增一条资产记录</h2>
+                    </div>
+                    <p class="section-note">今日 {{ today }}</p>
+                </div>
+
+                <form method="post" action="{{ url_for('create_item') }}" class="item-form" novalidate>
+                    <label class="field">
+                        <span>物品名称</span>
+                        <input type="text" name="item_name" maxlength="120" placeholder="例如：MacBook Pro 14" value="{{ form_values.item_name }}">
+                        {% if errors.item_name %}
+                            <small class="field-error">{{ errors.item_name }}</small>
+                        {% endif %}
+                    </label>
+
+                    <div class="field-row">
+                        <label class="field">
+                            <span>购买价格</span>
+                            <input type="number" name="price" min="0.01" step="0.01" inputmode="decimal" placeholder="例如：14799.00" value="{{ form_values.price }}">
+                            {% if errors.price %}
+                                <small class="field-error">{{ errors.price }}</small>
+                            {% endif %}
+                        </label>
+
+                        <label class="field">
+                            <span>购买日期</span>
+                            <input type="date" name="purchase_date" max="{{ today }}" value="{{ form_values.purchase_date }}">
+                            {% if errors.purchase_date %}
+                                <small class="field-error">{{ errors.purchase_date }}</small>
+                            {% endif %}
+                        </label>
+                    </div>
+
+                    <button type="submit" class="submit-button">计算并加入列表</button>
+                </form>
+            </section>
+
+            <section class="latest-panel">
+                <div class="section-head">
+                    <div>
+                        <p class="section-kicker">最近计算</p>
+                        <h2>本次结果</h2>
+                    </div>
+                </div>
+
+                {% if latest_record %}
+                    <article class="latest-record {{ latest_record.theme_class }}">
+                        <div class="list-icon image-icon-shell">
+                            <img src="{{ url_for('static', filename='icons/' ~ latest_record.icon_filename) }}" alt="{{ latest_record.category_label }}图标">
+                        </div>
+                        <div class="latest-body">
+                            <div class="status-row">
+                                <p class="list-category">{{ latest_record.category_label }}</p>
+                                <span class="status-pill {{ 'status-retired' if latest_record.is_retired else 'status-active' }}">
+                                    {{ latest_record.status_label }}
+                                </span>
+                            </div>
+                            <h3>{{ latest_record.item_name }}</h3>
+                            <div class="latest-metrics">
+                                <span>总价 {{ latest_record.price_display }}</span>
+                                <span>日均 {{ latest_record.daily_cost_display }}/天</span>
+                                <span>{{ latest_record.held_days }} 天</span>
+                            </div>
+                            <p class="list-date">{{ latest_record.status_note }}</p>
+                        </div>
+                    </article>
+                {% else %}
+                    <div class="empty-state">
+                        <p>还没有最近计算结果。</p>
+                        <p>提交左侧表单后，这里会展示你刚刚加入的资产。</p>
+                    </div>
+                {% endif %}
+            </section>
+        </section>
+
+        <section class="list-panel">
+            <div class="section-head">
+                <div>
+                    <p class="section-kicker">研究样本</p>
+                    <h2>资产列表</h2>
+                </div>
+                <p class="section-note">支持退役日期和退役备注</p>
+            </div>
+
+            {% if history %}
+                <div class="asset-list">
+                    {% for item in history %}
+                        <article class="asset-card {{ item.theme_class }} {{ 'asset-retired' if item.is_retired else '' }}">
+                            <div class="asset-main">
+                                <div class="asset-left">
+                                    <div class="list-icon image-icon-shell">
+                                        <img src="{{ url_for('static', filename='icons/' ~ item.icon_filename) }}" alt="{{ item.category_label }}图标">
+                                    </div>
+                                    <div class="asset-copy">
+                                        <div class="asset-title-row">
+                                            <h3>{{ item.item_name }}</h3>
+                                            <span class="asset-badge">{{ item.category_label }}</span>
+                                            <span class="status-pill {{ 'status-retired' if item.is_retired else 'status-active' }}">
+                                                {{ item.status_label }}
+                                            </span>
+                                        </div>
+                                        <p class="asset-price-line">{{ item.price_display }} · {{ item.daily_cost_display }}/天</p>
+                                        <p class="asset-date">{{ item.purchase_date }} · {{ item.status_note }}</p>
+                                    </div>
+                                </div>
+                                <div class="asset-right">
+                                    <strong>{{ item.held_days }}天</strong>
+                                    <span>{{ "已冻结" if item.is_retired else "已持有" }}</span>
+                                </div>
+                            </div>
+
+                            <div class="asset-actions">
+                                {% if editing_id == item.id %}
+                                    <a class="action-link secondary-link" href="{{ url_for('index') }}">取消</a>
+                                {% else %}
+                                    <a class="action-link" href="{{ url_for('index', editing_id=item.id) }}">修改</a>
+                                {% endif %}
+
+                                {% if retiring_id == item.id %}
+                                    <a class="action-link secondary-link" href="{{ url_for('index') }}">取消退役设置</a>
+                                {% else %}
+                                    <a class="action-link secondary-link" href="{{ url_for('index', retiring_id=item.id) }}">
+                                        {{ "调整退役" if item.is_retired else "退役设置" }}
+                                    </a>
+                                {% endif %}
+
+                                {% if item.is_retired %}
+                                    <form method="post" action="{{ url_for('update_retirement', item_id=item.id) }}" class="inline-action-form">
+                                        <input type="hidden" name="action" value="restore">
+                                        <button type="submit" class="action-link retirement-button">恢复使用</button>
+                                    </form>
+                                {% endif %}
+                            </div>
+
+                            {% if editing_id == item.id %}
+                                <form method="post" action="{{ url_for('edit_item', item_id=item.id) }}" class="edit-form" novalidate>
+                                    <p class="edit-form-title">修改 {{ item.item_name }}</p>
+                                    {% if item.is_retired %}
+                                        <p class="edit-form-note">该物品已退役，修改后会继续冻结在退役日期。</p>
+                                    {% endif %}
+                                    <div class="field-row">
+                                        <label class="field">
+                                            <span>新价格</span>
+                                            <input type="number" name="price" min="0.01" step="0.01" inputmode="decimal" value="{{ edit_form_values.price }}">
+                                            {% if edit_errors.price %}
+                                                <small class="field-error">{{ edit_errors.price }}</small>
+                                            {% endif %}
+                                        </label>
+
+                                        <label class="field">
+                                            <span>新购买日期</span>
+                                            <input type="date" name="purchase_date" max="{{ today }}" value="{{ edit_form_values.purchase_date }}">
+                                            {% if edit_errors.purchase_date %}
+                                                <small class="field-error">{{ edit_errors.purchase_date }}</small>
+                                            {% endif %}
+                                        </label>
+                                    </div>
+                                    <div class="edit-form-actions">
+                                        <button type="submit" class="submit-button compact-button">保存修改</button>
+                                        <a class="action-link secondary-link" href="{{ url_for('index') }}">取消编辑</a>
+                                    </div>
+                                </form>
+                            {% endif %}
+
+                            {% if retiring_id == item.id %}
+                                <form method="post" action="{{ url_for('update_retirement', item_id=item.id) }}" class="retire-form" novalidate>
+                                    <input type="hidden" name="action" value="retire">
+                                    <p class="edit-form-title">{{ "调整退役设置" if item.is_retired else "设置退役信息" }}</p>
+                                    <div class="field-row">
+                                        <label class="field">
+                                            <span>退役日期</span>
+                                            <input type="date" name="retired_on" min="{{ item.purchase_date }}" max="{{ today }}" value="{{ retire_form_values.retired_on }}">
+                                            {% if retire_errors.retired_on %}
+                                                <small class="field-error">{{ retire_errors.retired_on }}</small>
+                                            {% endif %}
+                                        </label>
+
+                                        <label class="field">
+                                            <span>退役备注</span>
+                                            <textarea name="retired_note" rows="3" maxlength="200" placeholder="例如：屏幕损坏，已闲置">{{ retire_form_values.retired_note }}</textarea>
+                                            {% if retire_errors.retired_note %}
+                                                <small class="field-error">{{ retire_errors.retired_note }}</small>
+                                            {% endif %}
+                                        </label>
+                                    </div>
+                                    <div class="edit-form-actions">
+                                        <button type="submit" class="submit-button compact-button">保存退役设置</button>
+                                        <a class="action-link secondary-link" href="{{ url_for('index') }}">取消</a>
+                                    </div>
+                                </form>
+                            {% endif %}
+                        </article>
+                    {% endfor %}
+                </div>
+            {% else %}
+                <div class="empty-state">
+                    <p>还没有历史记录。</p>
+                    <p>加入第一条资产后，这里会自动生成清单。</p>
+                </div>
+            {% endif %}
+        </section>
+    </main>
+</body>
+</html>

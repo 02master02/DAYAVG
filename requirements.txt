@@ -1,1 +1,1 @@
-# No runtime dependencies have been defined yet.
+Flask>=3.0,<4.0

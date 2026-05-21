@@ -1,0 +1,1 @@
+"""DayAvg application package."""
