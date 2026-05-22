@@ -14,8 +14,8 @@
                 <h1>资产日均观察</h1>
             </div>
             <div class="topbar-icons" aria-hidden="true">
-                <span class="topbar-icon">Σ</span>
-                <span class="topbar-icon">μ</span>
+                <span class="topbar-icon">资</span>
+                <span class="topbar-icon">研</span>
             </div>
         </header>
 
@@ -34,14 +34,14 @@
                 <article class="metric-tile metric-hero">
                     <div class="metric-title-row">
                         <span>总物品价值</span>
-                        <span class="metric-glyph">Σ</span>
+                        <span class="metric-glyph">总</span>
                     </div>
                     <strong>{{ summary.total_price_display }}</strong>
                 </article>
                 <article class="metric-tile metric-hero">
                     <div class="metric-title-row">
                         <span>总日均</span>
-                        <span class="metric-glyph">μ</span>
+                        <span class="metric-glyph">均</span>
                     </div>
                     <strong>{{ summary.total_daily_cost_display }}</strong>
                 </article>
@@ -70,7 +70,7 @@
             <section class="compose-panel">
                 <div class="section-head">
                     <div>
-                        <p class="section-kicker">录入台</p>
+                        <p class="section-kicker">录入区</p>
                         <h2>新增一条资产记录</h2>
                     </div>
                     <p class="section-note">今日 {{ today }}</p>
@@ -88,7 +88,7 @@
                     <div class="field-row">
                         <label class="field">
                             <span>购买价格</span>
-                            <input type="number" name="price" min="0.01" step="0.01" inputmode="decimal" placeholder="例如：14799.00" value="{{ form_values.price }}">
+                            <input type="number" name="price" min="0.01" step="0.01" inputmode="decimal" placeholder="例如：4799.00" value="{{ form_values.price }}">
                             {% if errors.price %}
                                 <small class="field-error">{{ errors.price }}</small>
                             {% endif %}
@@ -151,7 +151,23 @@
                     <p class="section-kicker">研究样本</p>
                     <h2>资产列表</h2>
                 </div>
-                <p class="section-note">支持退役日期和退役备注</p>
+                <div class="panel-tools">
+                    <a class="action-link secondary-link" href="{{ url_for('export_items') }}">导出 JSON</a>
+                    <form
+                        method="post"
+                        action="{{ url_for('import_items') }}"
+                        enctype="multipart/form-data"
+                        class="import-form"
+                        data-import-form
+                    >
+                        <label class="file-picker secondary-link">
+                            <span>选择 JSON</span>
+                            <input type="file" name="import_file" accept=".json,application/json" required data-import-file>
+                        </label>
+                        <button type="submit" class="action-link">导入 JSON</button>
+                        <small class="field-error import-feedback" data-import-feedback></small>
+                    </form>
+                </div>
             </div>
 
             {% if history %}
@@ -272,5 +288,8 @@
             {% endif %}
         </section>
     </main>
+
+    <script id="asset-snapshot" type="application/json">{{ asset_snapshot_payload | tojson }}</script>
+    <script src="{{ url_for('static', filename='persistence.js') }}"></script>
 </body>
 </html>

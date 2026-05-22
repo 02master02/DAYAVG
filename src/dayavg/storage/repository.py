@@ -5,6 +5,7 @@ from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -160,6 +161,48 @@ class DayAvgRepository:
                 """
             ).fetchall()
         return [self._row_to_record(row) for row in rows]
+
+    def replace_items(self, items: list[dict[str, Any]]) -> None:
+        with closing(sqlite3.connect(self.db_path)) as connection:
+            connection.execute("DELETE FROM items")
+            connection.execute("DELETE FROM sqlite_sequence WHERE name = 'items'")
+            if items:
+                connection.executemany(
+                    """
+                    INSERT INTO items (
+                        id,
+                        item_name,
+                        price_cents,
+                        purchase_date,
+                        held_days,
+                        daily_cost_cents,
+                        created_at,
+                        retired_on,
+                        retired_note
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    [
+                        (
+                            item["id"],
+                            item["item_name"],
+                            item["price_cents"],
+                            item["purchase_date"],
+                            item["held_days"],
+                            item["daily_cost_cents"],
+                            item["created_at"],
+                            item["retired_on"],
+                            item["retired_note"],
+                        )
+                        for item in items
+                    ],
+                )
+                max_item_id = max(int(item["id"]) for item in items)
+                connection.execute("DELETE FROM sqlite_sequence WHERE name = 'items'")
+                connection.execute(
+                    "INSERT INTO sqlite_sequence(name, seq) VALUES('items', ?)",
+                    (max_item_id,),
+                )
+            connection.commit()
 
     @staticmethod
     def _row_to_record(row: sqlite3.Row) -> StoredItemRecord:

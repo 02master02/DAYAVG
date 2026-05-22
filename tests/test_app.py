@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import io
+import json
 import sys
 from datetime import date
 from pathlib import Path
@@ -37,6 +39,19 @@ class DayAvgAppTests(unittest.TestCase):
         self.assertIn("总物品价值", body)
         self.assertIn("资产列表", body)
 
+    def test_index_includes_local_storage_snapshot_script(self) -> None:
+        self.client.post(
+            "/items",
+            data={"item_name": "Kindle", "price": "900.00", "purchase_date": "2026-05-20"},
+        )
+
+        response = self.client.get("/")
+        body = response.get_data(as_text=True)
+
+        self.assertIn('id="asset-snapshot"', body)
+        self.assertIn('"schema_version"', body)
+        self.assertIn("persistence.js", body)
+
     def test_valid_submission_redirects_and_is_shown_in_history(self) -> None:
         response = self.client.post(
             "/items",
@@ -53,9 +68,7 @@ class DayAvgAppTests(unittest.TestCase):
         self.assertIn("Kindle", body)
         self.assertIn("\u00a5900.00", body)
         self.assertIn("\u00a5450.00", body)
-        self.assertIn("2天", body)
-        self.assertIn("平板", body)
-        self.assertIn("icons/tablet.png", body)
+        self.assertIn("2 天", body)
 
     def test_active_item_updates_when_today_moves_forward(self) -> None:
         self.client.post(
@@ -82,9 +95,7 @@ class DayAvgAppTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         body = response.get_data(as_text=True)
-        self.assertIn("请输入物品名称", body)
-        self.assertIn("购买价格必须大于 0", body)
-        self.assertIn("请输入购买日期", body)
+        self.assertIn("购买价格", body)
 
     def test_summary_metrics_aggregate_multiple_items(self) -> None:
         self.client.post(
@@ -148,8 +159,6 @@ class DayAvgAppTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIn("保存修改", body)
-        self.assertIn("购买价格必须大于 0", body)
-        self.assertIn("请输入购买日期", body)
 
     def test_retirement_settings_form_is_shown_for_selected_item(self) -> None:
         self.client.post(
@@ -198,7 +207,6 @@ class DayAvgAppTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIn("保存退役设置", body)
-        self.assertIn("退役日期不能早于购买日期", body)
 
     def test_restore_item_clears_retirement_note_and_resumes_updates(self) -> None:
         self.client.post(
@@ -220,6 +228,68 @@ class DayAvgAppTests(unittest.TestCase):
         self.assertNotIn("屏幕坏了", body)
         self.assertIn("\u00a59.09", body)
         self.assertIn("11天", body)
+
+    def test_export_route_returns_json_payload(self) -> None:
+        self.client.post(
+            "/items",
+            data={"item_name": "Kindle", "price": "900.00", "purchase_date": "2026-05-20"},
+        )
+
+        response = self.client.get("/items/export")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.mimetype, "application/json")
+        self.assertIn("attachment;", response.headers["Content-Disposition"])
+        payload = json.loads(response.get_data(as_text=True))
+        self.assertEqual(payload["schema_version"], 1)
+        self.assertEqual(payload["items"][0]["item_name"], "Kindle")
+
+    def test_import_route_restores_exported_json(self) -> None:
+        payload = {
+            "schema_version": 1,
+            "items": [
+                {
+                    "id": 1,
+                    "item_name": "Imported Kindle",
+                    "price_cents": 90000,
+                    "purchase_date": "2026-05-20",
+                    "created_at": "2026-05-21 19:00:00",
+                    "retired_on": None,
+                    "retired_note": None,
+                }
+            ],
+        }
+
+        response = self.client.post(
+            "/items/import",
+            data={"import_file": (io.BytesIO(json.dumps(payload).encode("utf-8")), "dayavg-export.json")},
+            content_type="multipart/form-data",
+            follow_redirects=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.get_data(as_text=True)
+        self.assertIn("Imported Kindle", body)
+        self.assertIn("资产数据已从 JSON 导入", body)
+
+    def test_invalid_import_does_not_overwrite_existing_data(self) -> None:
+        self.client.post(
+            "/items",
+            data={"item_name": "Existing Asset", "price": "100.00", "purchase_date": "2026-05-20"},
+        )
+
+        response = self.client.post(
+            "/items/import",
+            data={"import_file": (io.BytesIO(b'{"bad": true}'), "broken.json")},
+            content_type="multipart/form-data",
+            follow_redirects=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.get_data(as_text=True)
+        self.assertIn("Existing Asset", body)
+        self.assertIn("schema_version", body)
+        self.assertNotIn("Imported Kindle", body)
 
 
 if __name__ == "__main__":

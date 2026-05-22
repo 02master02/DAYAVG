@@ -55,7 +55,19 @@
 - 为旧数据库增加 `retired_note` 兼容迁移逻辑
 - 在资产卡片中增加“退役设置 / 调整退役”入口
 - 恢复使用时同步清空退役日期和退役备注
-- 更新目标、计划、使用说明和项目记忆文档
+
+## 2026-05-21 21:00
+
+### 已完成
+
+- 确认当前项目技术栈为 `Flask + Jinja2 + SQLite`，且仓库不存在 `package.json`
+- 新增 `src/dayavg/services/persistence.py`，统一处理导出结构和导入 JSON 校验
+- 为仓库存储层增加整批替换能力，用于导入恢复资产列表
+- 新增 `GET /items/export` 和 `POST /items/import`
+- 新增 `static/persistence.js`，在页面加载后自动把当前资产快照同步到 `localStorage`
+- 新增导出 JSON 与导入 JSON 的轻量入口，保持当前页面布局基本不变
+- 增加前端基础校验和服务端严格校验，防止错误 JSON 覆盖现有资产
+- 重写入口模板和测试，覆盖导入导出与快照注入流程
 
 ### 修改文件
 
@@ -65,26 +77,33 @@
 - `docs/project_memory.md`
 - `docs/usage.md`
 - `src/app.py`
-- `src/dayavg/services/presentation.py`
-- `src/dayavg/services/validation.py`
+- `src/dayavg/services/persistence.py`
 - `src/dayavg/storage/repository.py`
 - `templates/index.html`
 - `static/styles.css`
+- `static/persistence.js`
 - `tests/test_app.py`
 - `tests/test_services.py`
 
 ### 当前结果
 
-DayAvg 现在支持完整的退役管理流程：正常物品按今天动态更新；退役物品可以手动指定退役日期并填写备注，之后冻结在该日期；恢复使用后重新回到动态计算状态。
+DayAvg 现在支持：
+
+- 页面刷新后由 SQLite 保持资产列表不丢失
+- 浏览器端把当前资产列表快照同步保存到 `localStorage`
+- 新增、修改、退役、恢复和导入成功后自动更新本地快照
+- 导出当前资产为 JSON
+- 导入此前导出的 JSON 并恢复列表
+- 错误 JSON 被前后端双重校验拦截，不会破坏现有数据
 
 ### 测试与验证
 
 - 已运行：`D:\Anaconda\python.exe -m unittest discover -s tests -v`
-- 结果：`23` 个测试全部通过
-- 覆盖范围：新增、修改、退役设置、恢复使用、动态日期更新、图标分类和输入校验
+- 结果：`31` 个测试全部通过
+- 说明：当前项目没有 `package.json`，因此没有 `npm run lint` 或 `npm run build`
 
 ### 下一步
 
-1. 在浏览器里手动走一遍“新增 -> 修改 -> 退役设置 -> 恢复使用”的完整流程
+1. 在浏览器里手动走一遍“新增 -> 导出 -> 清空/替换 -> 导入恢复”的完整流程
 2. 如果还想继续完善资产管理，可以增加删除功能
-3. 如果想提升可控性，可以继续增加手动分类或筛选排序
+3. 如果想提升可控性，可以继续增加筛选、排序或手动分类

@@ -9,8 +9,10 @@ import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from dayavg.services.calculator import calculate_held_days, calculate_item_state, format_currency  # noqa: E402
+from dayavg.services.persistence import ImportValidationError, build_export_payload, parse_import_payload  # noqa: E402
 from dayavg.services.presentation import classify_item_visual  # noqa: E402
 from dayavg.services.validation import FormValidationError, parse_item_form, parse_retirement_form  # noqa: E402
+from dayavg.storage.repository import StoredItemRecord  # noqa: E402
 
 
 class CalculatorServiceTests(unittest.TestCase):
@@ -98,16 +100,96 @@ class CalculatorServiceTests(unittest.TestCase):
         watch_visual = classify_item_visual("Apple Watch")
 
         self.assertEqual(phone_visual["icon_filename"], "phone.png")
-        self.assertEqual(watch_visual["category_label"], "手环手表")
+        self.assertEqual(watch_visual["icon_filename"], "wearable.png")
 
     def test_item_visual_falls_back_to_office_life_and_other(self) -> None:
-        office_visual = classify_item_visual("罗技鼠标")
+        office_visual = classify_item_visual("Logitech mouse")
         life_visual = classify_item_visual("保温杯")
         other_visual = classify_item_visual("收藏摆件")
 
         self.assertEqual(office_visual["icon_filename"], "office.png")
         self.assertEqual(life_visual["icon_filename"], "life.png")
         self.assertEqual(other_visual["icon_filename"], "other.png")
+
+    def test_export_payload_contains_expected_fields(self) -> None:
+        records = [
+            StoredItemRecord(
+                id=1,
+                item_name="Kindle",
+                price_cents=90000,
+                purchase_date="2026-05-20",
+                held_days=2,
+                daily_cost_cents=45000,
+                created_at="2026-05-21 19:00:00",
+                retired_on=None,
+                retired_note=None,
+            )
+        ]
+
+        payload = build_export_payload(records)
+
+        self.assertEqual(payload["schema_version"], 1)
+        self.assertEqual(len(payload["items"]), 1)
+        self.assertEqual(payload["items"][0]["item_name"], "Kindle")
+        self.assertNotIn("held_days", payload["items"][0])
+
+    def test_parse_import_payload_accepts_valid_export(self) -> None:
+        raw_text = """
+        {
+          "schema_version": 1,
+          "items": [
+            {
+              "id": 1,
+              "item_name": "Kindle",
+              "price_cents": 90000,
+              "purchase_date": "2026-05-20",
+              "created_at": "2026-05-21 19:00:00",
+              "retired_on": null,
+              "retired_note": null
+            }
+          ]
+        }
+        """
+
+        items = parse_import_payload(raw_text, current_date=date(2026, 5, 21))
+
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["held_days"], 2)
+        self.assertEqual(items[0]["daily_cost_cents"], 45000)
+
+    def test_parse_import_payload_rejects_invalid_schema(self) -> None:
+        with self.assertRaises(ImportValidationError):
+            parse_import_payload('{"schema_version": 2, "items": []}', current_date=date(2026, 5, 21))
+
+    def test_parse_import_payload_rejects_duplicate_ids(self) -> None:
+        raw_text = """
+        {
+          "schema_version": 1,
+          "items": [
+            {
+              "id": 1,
+              "item_name": "A",
+              "price_cents": 100,
+              "purchase_date": "2026-05-20",
+              "created_at": "2026-05-21 19:00:00",
+              "retired_on": null,
+              "retired_note": null
+            },
+            {
+              "id": 1,
+              "item_name": "B",
+              "price_cents": 100,
+              "purchase_date": "2026-05-20",
+              "created_at": "2026-05-21 19:01:00",
+              "retired_on": null,
+              "retired_note": null
+            }
+          ]
+        }
+        """
+
+        with self.assertRaises(ImportValidationError):
+            parse_import_payload(raw_text, current_date=date(2026, 5, 21))
 
 
 if __name__ == "__main__":

@@ -8,6 +8,7 @@ from flask import Flask, flash, redirect, render_template, request, url_for
 
 from dayavg.config import build_default_config
 from dayavg.services.calculator import calculate_item_state, format_currency, format_timestamp
+from dayavg.services.persistence import ImportValidationError, build_export_payload, parse_import_payload
 from dayavg.services.presentation import classify_item_visual, summarize_history
 from dayavg.services.validation import FormValidationError, parse_item_form, parse_retirement_form
 from dayavg.storage.repository import DayAvgRepository, StoredItemRecord
@@ -109,9 +110,7 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
                 max_purchase_date_label=max_date_label,
             )
         except FormValidationError as exc:
-            edit_errors = {
-                key: value for key, value in exc.errors.items() if key in {"price", "purchase_date"}
-            }
+            edit_errors = {key: value for key, value in exc.errors.items() if key in {"price", "purchase_date"}}
             return render_template(
                 "index.html",
                 **_build_page_context(
@@ -172,30 +171,62 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
                     ),
                 )
 
-            updated_record = repository.update_retirement(
+            repository.update_retirement(
                 item_id,
                 retired_on=parsed.retired_on.isoformat(),
                 retired_note=parsed.retired_note or None,
                 held_days=parsed.held_days,
                 daily_cost_cents=parsed.daily_cost_cents,
             )
-            if updated_record is not None:
-                flash("该物品已保存退役设置，后续将冻结在退役日期。", "success")
+            flash("该物品已保存退役设置，后续将冻结在退役日期。", "success")
         elif action == "restore":
             state = calculate_item_state(existing_record.price_cents, purchase_date, today)
-            updated_record = repository.update_retirement(
+            repository.update_retirement(
                 item_id,
                 retired_on=None,
                 retired_note=None,
                 held_days=state["held_days"],
                 daily_cost_cents=state["daily_cost_cents"],
             )
-            if updated_record is not None:
-                flash("该物品已恢复使用，将继续随时间更新。", "success")
+            flash("该物品已恢复使用，将继续随时间更新。", "success")
         else:
             flash("无效的退役操作。", "error")
 
         return redirect(url_for("index", updated_id=item_id))
+
+    @app.get("/items/export")
+    def export_items() -> Any:
+        payload = build_export_payload(repository.list_items())
+        body = app.json.dumps(payload, ensure_ascii=False, indent=2)
+        filename = f"dayavg-export-{_current_date(app).isoformat()}.json"
+        return app.response_class(
+            body,
+            mimetype="application/json",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+
+    @app.post("/items/import")
+    def import_items() -> str:
+        upload = request.files.get("import_file")
+        if upload is None or not upload.filename:
+            flash("请选择要导入的 JSON 文件。", "error")
+            return redirect(url_for("index"))
+
+        try:
+            raw_text = upload.read().decode("utf-8-sig")
+        except UnicodeDecodeError:
+            flash("导入文件必须是 UTF-8 编码的 JSON。", "error")
+            return redirect(url_for("index"))
+
+        try:
+            imported_items = parse_import_payload(raw_text, current_date=_current_date(app))
+        except ImportValidationError as exc:
+            flash(exc.message, "error")
+            return redirect(url_for("index"))
+
+        repository.replace_items(imported_items)
+        flash("资产数据已从 JSON 导入，并已覆盖当前列表。", "success")
+        return redirect(url_for("index"))
 
     return app
 
@@ -243,6 +274,7 @@ def _build_page_context(
         if retiring_record
         else {"retired_on": today.isoformat(), "retired_note": ""}
     )
+
     return {
         "errors": create_errors or {},
         "form_values": create_form_values or _empty_form_values(),
@@ -256,6 +288,7 @@ def _build_page_context(
         "retiring_id": retiring_id,
         "retire_errors": retire_errors or {},
         "retire_form_values": normalized_retire_values,
+        "asset_snapshot_payload": build_export_payload(history_records),
     }
 
 
@@ -274,6 +307,7 @@ def _build_record_view(record: StoredItemRecord, *, today: date) -> dict[str, An
     state = calculate_item_state(record.price_cents, purchase_date, reference_date)
     is_retired = record.retired_on is not None
     note_suffix = f" · {record.retired_note}" if record.retired_note else ""
+
     return {
         "id": record.id,
         "item_name": record.item_name,
