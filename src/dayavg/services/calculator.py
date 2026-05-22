@@ -26,11 +26,23 @@ def calculate_daily_cost_cents(price_cents: int, held_days: int) -> int:
     return decimal_to_cents(daily_amount)
 
 
-def calculate_item_state(price_cents: int, purchase_date: date, current_date: date) -> dict[str, int]:
+def calculate_actual_cost_cents(price_cents: int, resale_price_cents: int = 0) -> int:
+    return max(0, price_cents - resale_price_cents)
+
+
+def calculate_item_state(
+    price_cents: int,
+    purchase_date: date,
+    current_date: date,
+    *,
+    resale_price_cents: int = 0,
+) -> dict[str, int]:
     held_days = calculate_held_days(purchase_date, current_date)
+    actual_cost_cents = calculate_actual_cost_cents(price_cents, resale_price_cents)
     return {
         "held_days": held_days,
-        "daily_cost_cents": calculate_daily_cost_cents(price_cents, held_days),
+        "actual_cost_cents": actual_cost_cents,
+        "daily_cost_cents": calculate_daily_cost_cents(actual_cost_cents, held_days),
     }
 
 

@@ -248,7 +248,8 @@ svg {
     font-weight: 700;
 }
 
-.field input {
+.field input,
+.field select {
     width: 100%;
     padding: 14px 16px;
     border: 1px solid rgba(39, 70, 111, 0.14);
@@ -259,7 +260,8 @@ svg {
     transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
 }
 
-.field input:focus {
+.field input:focus,
+.field select:focus {
     outline: none;
     border-color: rgba(39, 70, 111, 0.48);
     box-shadow: 0 0 0 4px rgba(62, 106, 161, 0.14);
@@ -495,9 +497,18 @@ svg {
     color: var(--muted);
 }
 
+.asset-note {
+    margin: 10px 0 0;
+    color: var(--muted);
+    font-size: 0.92rem;
+    line-height: 1.5;
+}
+
 .asset-actions {
     display: flex;
     justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: 10px;
     margin-top: 14px;
 }
 
@@ -520,6 +531,11 @@ svg {
 
 .secondary-link {
     background: rgba(21, 34, 53, 0.06);
+}
+
+.danger-link {
+    background: rgba(175, 67, 49, 0.12);
+    color: #8e3325;
 }
 
 .inline-action-form {

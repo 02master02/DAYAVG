@@ -5,6 +5,7 @@ from datetime import date, datetime
 from typing import Any
 
 from dayavg.services.calculator import calculate_item_state
+from dayavg.services.presentation import normalize_category_key
 from dayavg.storage.repository import StoredItemRecord
 
 EXPORT_SCHEMA_VERSION = 1
@@ -23,10 +24,14 @@ def build_export_payload(records: list[StoredItemRecord]) -> dict[str, Any]:
             {
                 "id": record.id,
                 "item_name": record.item_name,
+                "category_key": normalize_category_key(record.category_key, record.item_name),
                 "price_cents": record.price_cents,
                 "purchase_date": record.purchase_date,
+                "item_note": record.item_note,
                 "created_at": record.created_at,
                 "retired_on": record.retired_on,
+                "retired_reason": record.retired_reason,
+                "resale_price_cents": record.resale_price_cents,
                 "retired_note": record.retired_note,
             }
             for record in records
@@ -82,15 +87,23 @@ def _normalize_import_item(
     if len(item_name) > 120:
         raise ImportValidationError(f"第 {index} 条资产的 item_name 超过 120 个字符。")
 
+    category_key = normalize_category_key(_optional_string(item.get("category_key"), f"第 {index} 条资产的 category_key"), item_name)
+
     price_cents = _require_positive_int(item.get("price_cents"), f"第 {index} 条资产的 price_cents")
     purchase_date = _parse_iso_date(item.get("purchase_date"), f"第 {index} 条资产的 purchase_date")
     if purchase_date > current_date:
         raise ImportValidationError(f"第 {index} 条资产的 purchase_date 不能晚于今天。")
 
+    item_note = _optional_string(item.get("item_note"), f"第 {index} 条资产的 item_note")
+    if item_note is not None and len(item_note) > 300:
+        raise ImportValidationError(f"第 {index} 条资产的 item_note 超过 300 个字符。")
+
     created_at = _parse_timestamp(item.get("created_at"), f"第 {index} 条资产的 created_at")
 
     retired_on_raw = item.get("retired_on")
     retired_on: str | None = None
+    retired_reason: str | None = None
+    resale_price_cents: int | None = None
     reference_date = current_date
     if retired_on_raw is not None:
         retired_on_date = _parse_iso_date(retired_on_raw, f"第 {index} 条资产的 retired_on")
@@ -101,6 +114,21 @@ def _normalize_import_item(
         retired_on = retired_on_date.isoformat()
         reference_date = retired_on_date
 
+        retired_reason = _optional_string(item.get("retired_reason"), f"第 {index} 条资产的 retired_reason")
+        if retired_reason is None:
+            retired_reason = _optional_string(item.get("retired_note"), f"第 {index} 条资产的 retired_note") or "历史导入"
+        if len(retired_reason) > 120:
+            raise ImportValidationError(f"第 {index} 条资产的 retired_reason 超过 120 个字符。")
+
+        resale_price_raw = item.get("resale_price_cents")
+        if resale_price_raw is not None:
+            resale_price_cents = _require_non_negative_int(
+                resale_price_raw,
+                f"第 {index} 条资产的 resale_price_cents",
+            )
+            if resale_price_cents > price_cents:
+                raise ImportValidationError(f"第 {index} 条资产的 resale_price_cents 不能高于 price_cents。")
+
     retired_note_raw = item.get("retired_note")
     if retired_note_raw is None:
         retired_note = None
@@ -109,19 +137,28 @@ def _normalize_import_item(
     else:
         raise ImportValidationError(f"第 {index} 条资产的 retired_note 必须是字符串或 null。")
 
-    if retired_note is not None and len(retired_note) > 200:
-        raise ImportValidationError(f"第 {index} 条资产的 retired_note 超过 200 个字符。")
+    if retired_note is not None and len(retired_note) > 300:
+        raise ImportValidationError(f"第 {index} 条资产的 retired_note 超过 300 个字符。")
 
-    state = calculate_item_state(price_cents, purchase_date, reference_date)
+    state = calculate_item_state(
+        price_cents,
+        purchase_date,
+        reference_date,
+        resale_price_cents=resale_price_cents or 0,
+    )
     return {
         "id": item_id,
         "item_name": item_name,
+        "category_key": category_key,
         "price_cents": price_cents,
         "purchase_date": purchase_date.isoformat(),
+        "item_note": item_note,
         "held_days": state["held_days"],
         "daily_cost_cents": state["daily_cost_cents"],
         "created_at": created_at,
         "retired_on": retired_on,
+        "retired_reason": retired_reason,
+        "resale_price_cents": resale_price_cents,
         "retired_note": retired_note,
     }
 
@@ -129,6 +166,12 @@ def _normalize_import_item(
 def _require_positive_int(value: Any, label: str) -> int:
     if not isinstance(value, int) or value <= 0:
         raise ImportValidationError(f"{label} 必须是大于 0 的整数。")
+    return value
+
+
+def _require_non_negative_int(value: Any, label: str) -> int:
+    if not isinstance(value, int) or value < 0:
+        raise ImportValidationError(f"{label} 必须是大于等于 0 的整数。")
     return value
 
 
@@ -149,3 +192,12 @@ def _parse_timestamp(value: Any, label: str) -> str:
     except ValueError as exc:
         raise ImportValidationError(f"{label} 不是有效的时间格式。") from exc
     return parsed.replace(microsecond=0).isoformat(sep=" ")
+
+
+def _optional_string(value: Any, label: str) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ImportValidationError(f"{label} 必须是字符串或 null。")
+    normalized = value.strip()
+    return normalized or None

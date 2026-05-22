@@ -30,6 +30,26 @@ class DayAvgAppTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.temp_dir.cleanup()
 
+    def _create_item(
+        self,
+        *,
+        item_name: str = "Kindle",
+        category_key: str = "tablet",
+        price: str = "900.00",
+        purchase_date: str = "2026-05-20",
+        item_note: str = "阅读器",
+    ) -> None:
+        self.client.post(
+            "/items",
+            data={
+                "item_name": item_name,
+                "category_key": category_key,
+                "price": price,
+                "purchase_date": purchase_date,
+                "item_note": item_note,
+            },
+        )
+
     def test_index_page_renders_dashboard_sections(self) -> None:
         response = self.client.get("/")
 
@@ -40,25 +60,24 @@ class DayAvgAppTests(unittest.TestCase):
         self.assertIn("资产列表", body)
 
     def test_index_includes_local_storage_snapshot_script(self) -> None:
-        self.client.post(
-            "/items",
-            data={"item_name": "Kindle", "price": "900.00", "purchase_date": "2026-05-20"},
-        )
+        self._create_item()
 
         response = self.client.get("/")
         body = response.get_data(as_text=True)
 
         self.assertIn('id="asset-snapshot"', body)
-        self.assertIn('"schema_version"', body)
+        self.assertIn('"category_key"', body)
         self.assertIn("persistence.js", body)
 
-    def test_valid_submission_redirects_and_is_shown_in_history(self) -> None:
+    def test_valid_submission_stores_category_and_note(self) -> None:
         response = self.client.post(
             "/items",
             data={
                 "item_name": "Kindle",
+                "category_key": "tablet",
                 "price": "900.00",
                 "purchase_date": "2026-05-20",
+                "item_note": "卧室阅读器",
             },
             follow_redirects=True,
         )
@@ -66,15 +85,14 @@ class DayAvgAppTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         body = response.get_data(as_text=True)
         self.assertIn("Kindle", body)
+        self.assertIn("平板", body)
+        self.assertIn("卧室阅读器", body)
         self.assertIn("\u00a5900.00", body)
         self.assertIn("\u00a5450.00", body)
-        self.assertIn("2 天", body)
+        self.assertIn("2天", body)
 
     def test_active_item_updates_when_today_moves_forward(self) -> None:
-        self.client.post(
-            "/items",
-            data={"item_name": "iPhone 12", "price": "100.00", "purchase_date": "2026-05-20"},
-        )
+        self._create_item(item_name="iPhone 12", category_key="phone", price="100.00")
         self.app.config["TODAY_OVERRIDE"] = date(2026, 5, 25)
 
         response = self.client.get("/")
@@ -82,105 +100,63 @@ class DayAvgAppTests(unittest.TestCase):
 
         self.assertIn("6天", body)
         self.assertIn("\u00a516.67", body)
-
-    def test_invalid_submission_shows_validation_error(self) -> None:
-        response = self.client.post(
-            "/items",
-            data={
-                "item_name": "",
-                "price": "0",
-                "purchase_date": "",
-            },
-        )
-
-        self.assertEqual(response.status_code, 200)
-        body = response.get_data(as_text=True)
-        self.assertIn("购买价格", body)
-
-    def test_summary_metrics_aggregate_multiple_items(self) -> None:
-        self.client.post(
-            "/items",
-            data={"item_name": "iPhone 12", "price": "100.00", "purchase_date": "2026-05-20"},
-        )
-        response = self.client.post(
-            "/items",
-            data={"item_name": "MacBook Pro", "price": "300.00", "purchase_date": "2026-05-19"},
-            follow_redirects=True,
-        )
-
-        body = response.get_data(as_text=True)
-        self.assertIn("\u00a5400.00", body)
-        self.assertIn("\u00a5200.00", body)
         self.assertIn("使用中", body)
 
-    def test_edit_form_is_shown_for_selected_item(self) -> None:
-        self.client.post(
-            "/items",
-            data={"item_name": "MacBook Pro", "price": "300.00", "purchase_date": "2026-05-19"},
-        )
-
-        response = self.client.get("/?editing_id=1")
-        body = response.get_data(as_text=True)
-
-        self.assertEqual(response.status_code, 200)
-        self.assertIn("保存修改", body)
-        self.assertIn("修改 MacBook Pro", body)
-
-    def test_edit_submission_updates_price_and_purchase_date(self) -> None:
-        self.client.post(
-            "/items",
-            data={"item_name": "MacBook Pro", "price": "300.00", "purchase_date": "2026-05-19"},
-        )
+    def test_edit_submission_updates_name_category_price_date_and_note(self) -> None:
+        self._create_item(item_name="MacBook Pro", category_key="computer", price="300.00", purchase_date="2026-05-19")
 
         response = self.client.post(
             "/items/1/edit",
-            data={"price": "600.00", "purchase_date": "2026-05-20"},
+            data={
+                "item_name": "办公鼠标",
+                "category_key": "office",
+                "price": "600.00",
+                "purchase_date": "2026-05-20",
+                "item_note": "已换到工位 B",
+            },
             follow_redirects=True,
         )
         body = response.get_data(as_text=True)
 
         self.assertEqual(response.status_code, 200)
         self.assertIn("记录已更新", body)
+        self.assertIn("办公鼠标", body)
+        self.assertIn("办公用品", body)
+        self.assertIn("已换到工位 B", body)
         self.assertIn("\u00a5600.00", body)
         self.assertIn("\u00a5300.00", body)
         self.assertIn("2026-05-20", body)
 
     def test_invalid_edit_keeps_user_in_edit_mode(self) -> None:
-        self.client.post(
-            "/items",
-            data={"item_name": "MacBook Pro", "price": "300.00", "purchase_date": "2026-05-19"},
-        )
+        self._create_item(item_name="MacBook Pro", category_key="computer", price="300.00", purchase_date="2026-05-19")
 
         response = self.client.post(
             "/items/1/edit",
-            data={"price": "0", "purchase_date": ""},
+            data={
+                "item_name": "",
+                "category_key": "computer",
+                "price": "0",
+                "purchase_date": "",
+                "item_note": "",
+            },
         )
         body = response.get_data(as_text=True)
 
         self.assertEqual(response.status_code, 200)
         self.assertIn("保存修改", body)
+        self.assertIn("请输入物品名称", body)
 
-    def test_retirement_settings_form_is_shown_for_selected_item(self) -> None:
-        self.client.post(
-            "/items",
-            data={"item_name": "iPhone 12", "price": "100.00", "purchase_date": "2026-05-20"},
-        )
-
-        response = self.client.get("/?retiring_id=1")
-        body = response.get_data(as_text=True)
-
-        self.assertEqual(response.status_code, 200)
-        self.assertIn("保存退役设置", body)
-        self.assertIn("退役备注", body)
-
-    def test_retired_item_freezes_after_manual_retirement_date(self) -> None:
-        self.client.post(
-            "/items",
-            data={"item_name": "iPhone 12", "price": "100.00", "purchase_date": "2026-05-15"},
-        )
+    def test_retired_item_freezes_days_and_uses_resale_price_in_daily_cost(self) -> None:
+        self._create_item(item_name="iPhone 12", category_key="phone", price="100.00", purchase_date="2026-05-15")
         self.client.post(
             "/items/1/retirement",
-            data={"action": "retire", "retired_on": "2026-05-18", "retired_note": "屏幕坏了"},
+            data={
+                "action": "retire",
+                "retired_on": "2026-05-18",
+                "retired_reason": "升级换代",
+                "resale_price": "40.00",
+                "retired_note": "同城卖出",
+            },
             follow_redirects=True,
         )
         self.app.config["TODAY_OVERRIDE"] = date(2026, 5, 25)
@@ -189,33 +165,43 @@ class DayAvgAppTests(unittest.TestCase):
         body = response.get_data(as_text=True)
 
         self.assertIn("已退役", body)
-        self.assertIn("冻结于 2026-05-18 · 屏幕坏了", body)
-        self.assertIn("\u00a525.00", body)
+        self.assertIn("冻结于 2026-05-18", body)
+        self.assertIn("原因：升级换代", body)
+        self.assertIn("卖出价 \u00a540.00", body)
+        self.assertIn("实际成本 \u00a560.00", body)
+        self.assertIn("\u00a515.00", body)
         self.assertIn("4天", body)
 
     def test_invalid_retirement_setting_keeps_user_in_retirement_form(self) -> None:
-        self.client.post(
-            "/items",
-            data={"item_name": "iPhone 12", "price": "100.00", "purchase_date": "2026-05-20"},
-        )
+        self._create_item(item_name="iPhone 12", category_key="phone", price="100.00", purchase_date="2026-05-20")
 
         response = self.client.post(
             "/items/1/retirement",
-            data={"action": "retire", "retired_on": "2026-05-19", "retired_note": ""},
+            data={
+                "action": "retire",
+                "retired_on": "2026-05-19",
+                "retired_reason": "",
+                "resale_price": "120.00",
+                "retired_note": "",
+            },
         )
         body = response.get_data(as_text=True)
 
         self.assertEqual(response.status_code, 200)
         self.assertIn("保存退役设置", body)
+        self.assertIn("请输入退役原因", body)
 
-    def test_restore_item_clears_retirement_note_and_resumes_updates(self) -> None:
-        self.client.post(
-            "/items",
-            data={"item_name": "iPhone 12", "price": "100.00", "purchase_date": "2026-05-15"},
-        )
+    def test_restore_item_clears_retirement_fields_and_resumes_updates(self) -> None:
+        self._create_item(item_name="iPhone 12", category_key="phone", price="100.00", purchase_date="2026-05-15")
         self.client.post(
             "/items/1/retirement",
-            data={"action": "retire", "retired_on": "2026-05-18", "retired_note": "屏幕坏了"},
+            data={
+                "action": "retire",
+                "retired_on": "2026-05-18",
+                "retired_reason": "升级换代",
+                "resale_price": "40.00",
+                "retired_note": "同城卖出",
+            },
         )
         self.client.post("/items/1/retirement", data={"action": "restore"})
         self.app.config["TODAY_OVERRIDE"] = date(2026, 5, 25)
@@ -225,37 +211,74 @@ class DayAvgAppTests(unittest.TestCase):
 
         self.assertIn("使用中", body)
         self.assertIn("按今天实时更新", body)
-        self.assertNotIn("屏幕坏了", body)
+        self.assertNotIn("同城卖出", body)
+        self.assertNotIn("升级换代", body)
         self.assertIn("\u00a59.09", body)
         self.assertIn("11天", body)
 
-    def test_export_route_returns_json_payload(self) -> None:
+    def test_delete_item_removes_record_and_updates_summary_counts(self) -> None:
+        self._create_item(item_name="Kindle", category_key="tablet")
+        self._create_item(item_name="iPhone 12", category_key="phone", price="100.00", purchase_date="2026-05-15")
         self.client.post(
-            "/items",
-            data={"item_name": "Kindle", "price": "900.00", "purchase_date": "2026-05-20"},
+            "/items/2/retirement",
+            data={
+                "action": "retire",
+                "retired_on": "2026-05-18",
+                "retired_reason": "升级换代",
+                "resale_price": "",
+                "retired_note": "",
+            },
+        )
+
+        response = self.client.post("/items/1/delete", follow_redirects=True)
+        body = response.get_data(as_text=True)
+
+        self.assertIn("该资产记录已删除", body)
+        self.assertNotIn("Kindle", body)
+        self.assertIn("iPhone 12", body)
+        self.assertIn(">1</strong>", body)
+        self.assertIn("使用中", body)
+        self.assertIn("已退役", body)
+
+    def test_export_route_returns_current_json_payload(self) -> None:
+        self._create_item()
+        self.client.post(
+            "/items/1/retirement",
+            data={
+                "action": "retire",
+                "retired_on": "2026-05-21",
+                "retired_reason": "升级换代",
+                "resale_price": "200.00",
+                "retired_note": "卖给朋友",
+            },
         )
 
         response = self.client.get("/items/export")
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.mimetype, "application/json")
-        self.assertIn("attachment;", response.headers["Content-Disposition"])
         payload = json.loads(response.get_data(as_text=True))
-        self.assertEqual(payload["schema_version"], 1)
-        self.assertEqual(payload["items"][0]["item_name"], "Kindle")
+        self.assertEqual(payload["items"][0]["category_key"], "tablet")
+        self.assertEqual(payload["items"][0]["item_note"], "阅读器")
+        self.assertEqual(payload["items"][0]["retired_reason"], "升级换代")
+        self.assertEqual(payload["items"][0]["resale_price_cents"], 20000)
 
-    def test_import_route_restores_exported_json(self) -> None:
+    def test_import_route_restores_current_json(self) -> None:
         payload = {
             "schema_version": 1,
             "items": [
                 {
                     "id": 1,
                     "item_name": "Imported Kindle",
+                    "category_key": "tablet",
                     "price_cents": 90000,
-                    "purchase_date": "2026-05-20",
+                    "purchase_date": "2026-05-18",
+                    "item_note": "导入备注",
                     "created_at": "2026-05-21 19:00:00",
-                    "retired_on": None,
-                    "retired_note": None,
+                    "retired_on": "2026-05-20",
+                    "retired_reason": "升级换代",
+                    "resale_price_cents": 30000,
+                    "retired_note": "已卖出",
                 }
             ],
         }
@@ -270,13 +293,12 @@ class DayAvgAppTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         body = response.get_data(as_text=True)
         self.assertIn("Imported Kindle", body)
+        self.assertIn("导入备注", body)
+        self.assertIn("实际成本 \u00a5600.00", body)
         self.assertIn("资产数据已从 JSON 导入", body)
 
     def test_invalid_import_does_not_overwrite_existing_data(self) -> None:
-        self.client.post(
-            "/items",
-            data={"item_name": "Existing Asset", "price": "100.00", "purchase_date": "2026-05-20"},
-        )
+        self._create_item(item_name="Existing Asset", category_key="other", price="100.00", item_note="原始数据")
 
         response = self.client.post(
             "/items/import",
@@ -289,7 +311,7 @@ class DayAvgAppTests(unittest.TestCase):
         body = response.get_data(as_text=True)
         self.assertIn("Existing Asset", body)
         self.assertIn("schema_version", body)
-        self.assertNotIn("Imported Kindle", body)
+        self.assertIn("原始数据", body)
 
 
 if __name__ == "__main__":

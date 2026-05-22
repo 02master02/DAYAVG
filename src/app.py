@@ -9,7 +9,12 @@ from flask import Flask, flash, redirect, render_template, request, url_for
 from dayavg.config import build_default_config
 from dayavg.services.calculator import calculate_item_state, format_currency, format_timestamp
 from dayavg.services.persistence import ImportValidationError, build_export_payload, parse_import_payload
-from dayavg.services.presentation import classify_item_visual, summarize_history
+from dayavg.services.presentation import (
+    DEFAULT_CATEGORY_KEY,
+    classify_item_visual,
+    get_category_options,
+    summarize_history,
+)
 from dayavg.services.validation import FormValidationError, parse_item_form, parse_retirement_form
 from dayavg.storage.repository import DayAvgRepository, StoredItemRecord
 
@@ -54,8 +59,10 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
         today = _current_date(app)
         form_values = {
             "item_name": request.form.get("item_name", "").strip(),
+            "category_key": request.form.get("category_key", "").strip(),
             "price": request.form.get("price", "").strip(),
             "purchase_date": request.form.get("purchase_date", "").strip(),
+            "item_note": request.form.get("item_note", "").strip(),
         }
 
         try:
@@ -73,8 +80,10 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
 
         created_record = repository.add_item(
             item_name=parsed.item_name,
+            category_key=parsed.category_key,
             price_cents=parsed.price_cents,
             purchase_date=parsed.purchase_date.isoformat(),
+            item_note=parsed.item_note or None,
             held_days=parsed.held_days,
             daily_cost_cents=parsed.daily_cost_cents,
         )
@@ -90,13 +99,11 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
             return redirect(url_for("index"))
 
         edit_form_values = {
+            "item_name": request.form.get("item_name", "").strip(),
+            "category_key": request.form.get("category_key", "").strip(),
             "price": request.form.get("price", "").strip(),
             "purchase_date": request.form.get("purchase_date", "").strip(),
-        }
-        candidate_form = {
-            "item_name": existing_record.item_name,
-            "price": edit_form_values["price"],
-            "purchase_date": edit_form_values["purchase_date"],
+            "item_note": request.form.get("item_note", "").strip(),
         }
 
         max_purchase_date = date.fromisoformat(existing_record.retired_on) if existing_record.retired_on else today
@@ -104,19 +111,18 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
 
         try:
             parsed = parse_item_form(
-                candidate_form,
+                edit_form_values,
                 current_date=today,
                 max_purchase_date=max_purchase_date,
                 max_purchase_date_label=max_date_label,
             )
         except FormValidationError as exc:
-            edit_errors = {key: value for key, value in exc.errors.items() if key in {"price", "purchase_date"}}
             return render_template(
                 "index.html",
                 **_build_page_context(
                     repository,
                     editing_id=item_id,
-                    edit_errors=edit_errors,
+                    edit_errors=exc.errors,
                     edit_form_values=edit_form_values,
                     today=today,
                 ),
@@ -124,8 +130,11 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
 
         updated_record = repository.update_item(
             item_id,
+            item_name=parsed.item_name,
+            category_key=parsed.category_key,
             price_cents=parsed.price_cents,
             purchase_date=parsed.purchase_date.isoformat(),
+            item_note=parsed.item_note or None,
             held_days=parsed.held_days,
             daily_cost_cents=parsed.daily_cost_cents,
         )
@@ -150,6 +159,8 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
         if action == "retire":
             retire_form_values = {
                 "retired_on": request.form.get("retired_on", "").strip(),
+                "retired_reason": request.form.get("retired_reason", "").strip(),
+                "resale_price": request.form.get("resale_price", "").strip(),
                 "retired_note": request.form.get("retired_note", "").strip(),
             }
             try:
@@ -174,6 +185,8 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
             repository.update_retirement(
                 item_id,
                 retired_on=parsed.retired_on.isoformat(),
+                retired_reason=parsed.retired_reason,
+                resale_price_cents=parsed.resale_price_cents,
                 retired_note=parsed.retired_note or None,
                 held_days=parsed.held_days,
                 daily_cost_cents=parsed.daily_cost_cents,
@@ -184,6 +197,8 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
             repository.update_retirement(
                 item_id,
                 retired_on=None,
+                retired_reason=None,
+                resale_price_cents=None,
                 retired_note=None,
                 held_days=state["held_days"],
                 daily_cost_cents=state["daily_cost_cents"],
@@ -193,6 +208,15 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
             flash("无效的退役操作。", "error")
 
         return redirect(url_for("index", updated_id=item_id))
+
+    @app.post("/items/<int:item_id>/delete")
+    def delete_item(item_id: int) -> str:
+        deleted = repository.delete_item(item_id)
+        if deleted:
+            flash("该资产记录已删除。", "success")
+        else:
+            flash("未找到要删除的物品记录。", "error")
+        return redirect(url_for("index"))
 
     @app.get("/items/export")
     def export_items() -> Any:
@@ -260,24 +284,29 @@ def _build_page_context(
     retiring_record = repository.get_item(retiring_id) if retiring_id else None
     normalized_edit_values = edit_form_values or (
         {
+            "item_name": editing_record.item_name,
+            "category_key": editing_record.category_key or DEFAULT_CATEGORY_KEY,
             "price": _price_to_plain_string(editing_record.price_cents),
             "purchase_date": editing_record.purchase_date,
+            "item_note": editing_record.item_note or "",
         }
         if editing_record
-        else {"price": "", "purchase_date": ""}
+        else {"item_name": "", "category_key": DEFAULT_CATEGORY_KEY, "price": "", "purchase_date": "", "item_note": ""}
     )
     normalized_retire_values = retire_form_values or (
         {
             "retired_on": retiring_record.retired_on or today.isoformat(),
+            "retired_reason": retiring_record.retired_reason or "",
+            "resale_price": _optional_price_string(retiring_record.resale_price_cents),
             "retired_note": retiring_record.retired_note or "",
         }
         if retiring_record
-        else {"retired_on": today.isoformat(), "retired_note": ""}
+        else {"retired_on": today.isoformat(), "retired_reason": "", "resale_price": "", "retired_note": ""}
     )
 
     return {
         "errors": create_errors or {},
-        "form_values": create_form_values or _empty_form_values(),
+        "form_values": {**_empty_form_values(), **(create_form_values or {})},
         "latest_record": _build_record_view(latest_record, today=today) if latest_record else None,
         "history": history_views,
         "summary": summarize_history(history_views),
@@ -288,41 +317,74 @@ def _build_page_context(
         "retiring_id": retiring_id,
         "retire_errors": retire_errors or {},
         "retire_form_values": normalized_retire_values,
+        "category_options": get_category_options(),
         "asset_snapshot_payload": build_export_payload(history_records),
     }
 
 
 def _empty_form_values() -> dict[str, str]:
-    return {"item_name": "", "price": "", "purchase_date": ""}
+    return {
+        "item_name": "",
+        "category_key": DEFAULT_CATEGORY_KEY,
+        "price": "",
+        "purchase_date": "",
+        "item_note": "",
+    }
 
 
 def _price_to_plain_string(price_cents: int) -> str:
     return f"{price_cents / 100:.2f}"
 
 
+def _optional_price_string(price_cents: int | None) -> str:
+    if price_cents is None:
+        return ""
+    return _price_to_plain_string(price_cents)
+
+
 def _build_record_view(record: StoredItemRecord, *, today: date) -> dict[str, Any]:
-    visuals = classify_item_visual(record.item_name)
+    visuals = classify_item_visual(record.item_name, record.category_key)
     reference_date = date.fromisoformat(record.retired_on) if record.retired_on else today
     purchase_date = date.fromisoformat(record.purchase_date)
-    state = calculate_item_state(record.price_cents, purchase_date, reference_date)
+    resale_price_cents = record.resale_price_cents or 0
+    state = calculate_item_state(
+        record.price_cents,
+        purchase_date,
+        reference_date,
+        resale_price_cents=resale_price_cents,
+    )
     is_retired = record.retired_on is not None
-    note_suffix = f" · {record.retired_note}" if record.retired_note else ""
+    retirement_parts = [f"冻结于 {record.retired_on}"]
+    if record.retired_reason:
+        retirement_parts.append(f"原因：{record.retired_reason}")
+    if record.resale_price_cents is not None:
+        retirement_parts.append(f"卖出价 {format_currency(record.resale_price_cents)}")
+    if record.retired_note:
+        retirement_parts.append(f"备注：{record.retired_note}")
+    actual_cost_cents = state["actual_cost_cents"]
 
     return {
         "id": record.id,
         "item_name": record.item_name,
+        "category_key": visuals["category_key"],
         "price_cents": record.price_cents,
         "price_display": format_currency(record.price_cents),
         "purchase_date": record.purchase_date,
+        "item_note": record.item_note,
         "held_days": state["held_days"],
+        "actual_cost_cents": actual_cost_cents,
+        "actual_cost_display": format_currency(actual_cost_cents),
         "daily_cost_cents": state["daily_cost_cents"],
         "daily_cost_display": format_currency(state["daily_cost_cents"]),
         "created_at_display": format_timestamp(record.created_at),
         "retired_on": record.retired_on,
+        "retired_reason": record.retired_reason,
+        "resale_price_cents": record.resale_price_cents,
+        "resale_price_display": format_currency(record.resale_price_cents or 0) if record.resale_price_cents is not None else None,
         "retired_note": record.retired_note,
         "is_retired": is_retired,
         "status_label": "已退役" if is_retired else "使用中",
-        "status_note": f"冻结于 {record.retired_on}{note_suffix}" if is_retired else "按今天实时更新",
+        "status_note": " · ".join(retirement_parts) if is_retired else "按今天实时更新",
         **visuals,
     }
 

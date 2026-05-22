@@ -87,6 +87,15 @@
 
                     <div class="field-row">
                         <label class="field">
+                            <span>物品分类</span>
+                            <select name="category_key">
+                                {% for option in category_options %}
+                                    <option value="{{ option.key }}" {% if form_values.category_key == option.key %}selected{% endif %}>{{ option.label }}</option>
+                                {% endfor %}
+                            </select>
+                        </label>
+
+                        <label class="field">
                             <span>购买价格</span>
                             <input type="number" name="price" min="0.01" step="0.01" inputmode="decimal" placeholder="例如：4799.00" value="{{ form_values.price }}">
                             {% if errors.price %}
@@ -102,6 +111,14 @@
                             {% endif %}
                         </label>
                     </div>
+
+                    <label class="field">
+                        <span>资产备注</span>
+                        <textarea name="item_note" rows="3" maxlength="300" placeholder="例如：国补购入，主力设备">{{ form_values.item_note }}</textarea>
+                        {% if errors.item_note %}
+                            <small class="field-error">{{ errors.item_note }}</small>
+                        {% endif %}
+                    </label>
 
                     <button type="submit" class="submit-button">计算并加入列表</button>
                 </form>
@@ -130,10 +147,16 @@
                             <h3>{{ latest_record.item_name }}</h3>
                             <div class="latest-metrics">
                                 <span>总价 {{ latest_record.price_display }}</span>
+                                {% if latest_record.is_retired %}
+                                    <span>实际成本 {{ latest_record.actual_cost_display }}</span>
+                                {% endif %}
                                 <span>日均 {{ latest_record.daily_cost_display }}/天</span>
                                 <span>{{ latest_record.held_days }} 天</span>
                             </div>
                             <p class="list-date">{{ latest_record.status_note }}</p>
+                            {% if latest_record.item_note %}
+                                <p class="asset-note">备注：{{ latest_record.item_note }}</p>
+                            {% endif %}
                         </div>
                     </article>
                 {% else %}
@@ -187,8 +210,17 @@
                                                 {{ item.status_label }}
                                             </span>
                                         </div>
-                                        <p class="asset-price-line">{{ item.price_display }} · {{ item.daily_cost_display }}/天</p>
+                                        <p class="asset-price-line">
+                                            {{ item.price_display }}
+                                            {% if item.is_retired %}
+                                                · 实际成本 {{ item.actual_cost_display }}
+                                            {% endif %}
+                                            · {{ item.daily_cost_display }}/天
+                                        </p>
                                         <p class="asset-date">{{ item.purchase_date }} · {{ item.status_note }}</p>
+                                        {% if item.item_note %}
+                                            <p class="asset-note">备注：{{ item.item_note }}</p>
+                                        {% endif %}
                                     </div>
                                 </div>
                                 <div class="asset-right">
@@ -218,6 +250,15 @@
                                         <button type="submit" class="action-link retirement-button">恢复使用</button>
                                     </form>
                                 {% endif %}
+
+                                <form
+                                    method="post"
+                                    action="{{ url_for('delete_item', item_id=item.id) }}"
+                                    class="inline-action-form"
+                                    data-confirm-message="确认删除 {{ item.item_name }} 吗？此操作不可恢复。"
+                                >
+                                    <button type="submit" class="action-link danger-link">删除</button>
+                                </form>
                             </div>
 
                             {% if editing_id == item.id %}
@@ -226,9 +267,25 @@
                                     {% if item.is_retired %}
                                         <p class="edit-form-note">该物品已退役，修改后会继续冻结在退役日期。</p>
                                     {% endif %}
+                                    <label class="field">
+                                        <span>物品名称</span>
+                                        <input type="text" name="item_name" maxlength="120" value="{{ edit_form_values.item_name }}">
+                                        {% if edit_errors.item_name %}
+                                            <small class="field-error">{{ edit_errors.item_name }}</small>
+                                        {% endif %}
+                                    </label>
                                     <div class="field-row">
                                         <label class="field">
-                                            <span>新价格</span>
+                                            <span>物品分类</span>
+                                            <select name="category_key">
+                                                {% for option in category_options %}
+                                                    <option value="{{ option.key }}" {% if edit_form_values.category_key == option.key %}selected{% endif %}>{{ option.label }}</option>
+                                                {% endfor %}
+                                            </select>
+                                        </label>
+
+                                        <label class="field">
+                                            <span>购买价格</span>
                                             <input type="number" name="price" min="0.01" step="0.01" inputmode="decimal" value="{{ edit_form_values.price }}">
                                             {% if edit_errors.price %}
                                                 <small class="field-error">{{ edit_errors.price }}</small>
@@ -236,13 +293,20 @@
                                         </label>
 
                                         <label class="field">
-                                            <span>新购买日期</span>
+                                            <span>购买日期</span>
                                             <input type="date" name="purchase_date" max="{{ today }}" value="{{ edit_form_values.purchase_date }}">
                                             {% if edit_errors.purchase_date %}
                                                 <small class="field-error">{{ edit_errors.purchase_date }}</small>
                                             {% endif %}
                                         </label>
                                     </div>
+                                    <label class="field">
+                                        <span>资产备注</span>
+                                        <textarea name="item_note" rows="3" maxlength="300" placeholder="例如：备用机、家用、公司配发">{{ edit_form_values.item_note }}</textarea>
+                                        {% if edit_errors.item_note %}
+                                            <small class="field-error">{{ edit_errors.item_note }}</small>
+                                        {% endif %}
+                                    </label>
                                     <div class="edit-form-actions">
                                         <button type="submit" class="submit-button compact-button">保存修改</button>
                                         <a class="action-link secondary-link" href="{{ url_for('index') }}">取消编辑</a>
@@ -264,8 +328,25 @@
                                         </label>
 
                                         <label class="field">
+                                            <span>退役原因</span>
+                                            <input type="text" name="retired_reason" maxlength="120" placeholder="例如：升级换代" value="{{ retire_form_values.retired_reason }}">
+                                            {% if retire_errors.retired_reason %}
+                                                <small class="field-error">{{ retire_errors.retired_reason }}</small>
+                                            {% endif %}
+                                        </label>
+                                    </div>
+                                    <div class="field-row">
+                                        <label class="field">
+                                            <span>二手卖出价格</span>
+                                            <input type="number" name="resale_price" min="0" step="0.01" inputmode="decimal" placeholder="例如：2500.00" value="{{ retire_form_values.resale_price }}">
+                                            {% if retire_errors.resale_price %}
+                                                <small class="field-error">{{ retire_errors.resale_price }}</small>
+                                            {% endif %}
+                                        </label>
+
+                                        <label class="field">
                                             <span>退役备注</span>
-                                            <textarea name="retired_note" rows="3" maxlength="200" placeholder="例如：屏幕损坏，已闲置">{{ retire_form_values.retired_note }}</textarea>
+                                            <textarea name="retired_note" rows="3" maxlength="300" placeholder="例如：同城卖出，包装配件齐全">{{ retire_form_values.retired_note }}</textarea>
                                             {% if retire_errors.retired_note %}
                                                 <small class="field-error">{{ retire_errors.retired_note }}</small>
                                             {% endif %}

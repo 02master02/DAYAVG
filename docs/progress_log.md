@@ -69,6 +69,24 @@
 - 增加前端基础校验和服务端严格校验，防止错误 JSON 覆盖现有资产
 - 重写入口模板和测试，覆盖导入导出与快照注入流程
 
+### 测试与验证
+
+- 已运行：`D:\Anaconda\python.exe -m unittest discover -s tests -v`
+- 结果：`31` 个测试全部通过
+
+## 2026-05-22
+
+### 已完成
+
+- 扩展资产编辑能力：现在支持修改名称、分类、购买价格、购买日期和资产备注
+- 增加资产删除路由与卡片内删除入口，并在浏览器端补上二次确认
+- 扩展退役设置：支持退役日期、退役原因、二手卖出价格和退役备注
+- 调整退役计算逻辑：退役资产的持有天数冻结在退役日期，日均按“购买价格 - 二手卖出价格”计算
+- 恢复使用时会清空退役日期、退役原因、卖出价格和退役备注
+- 扩展 SQLite 字段迁移、导入导出结构和 `localStorage` 快照校验，兼容旧版导出 JSON
+- 更新首页模板和样式，在不重构页面的前提下补齐新增字段展示
+- 重写服务层与 Web 层测试，覆盖编辑、删除、退役冻结、卖出价影响和导入兼容
+
 ### 修改文件
 
 - `docs/task_goal.md`
@@ -77,7 +95,10 @@
 - `docs/project_memory.md`
 - `docs/usage.md`
 - `src/app.py`
+- `src/dayavg/services/calculator.py`
 - `src/dayavg/services/persistence.py`
+- `src/dayavg/services/presentation.py`
+- `src/dayavg/services/validation.py`
 - `src/dayavg/storage/repository.py`
 - `templates/index.html`
 - `static/styles.css`
@@ -89,21 +110,23 @@
 
 DayAvg 现在支持：
 
-- 页面刷新后由 SQLite 保持资产列表不丢失
-- 浏览器端把当前资产列表快照同步保存到 `localStorage`
-- 新增、修改、退役、恢复和导入成功后自动更新本地快照
-- 导出当前资产为 JSON
-- 导入此前导出的 JSON 并恢复列表
-- 错误 JSON 被前后端双重校验拦截，不会破坏现有数据
+- 每条资产编辑名称、分类、购买价格、购买日期和备注
+- 每条资产删除，并在浏览器侧做二次确认
+- 退役信息记录日期、原因、二手卖出价格和备注
+- 使用中资产继续按今天增长持有天数
+- 已退役资产冻结持有天数，并按实际成本计算日均
+- 顶部“使用中 / 已退役”数量随删除、退役和恢复正确更新
+- 当前导出 JSON 可重新导入，且兼容旧版缺少新字段的导出文件
 
 ### 测试与验证
 
 - 已运行：`D:\Anaconda\python.exe -m unittest discover -s tests -v`
-- 结果：`31` 个测试全部通过
-- 说明：当前项目没有 `package.json`，因此没有 `npm run lint` 或 `npm run build`
+- 结果：`27` 个测试全部通过
+- 已运行：`D:\Anaconda\python.exe -m compileall src`
+- 结果：`src` 编译检查通过
+- 说明：当前项目仍然没有 `package.json`，因此没有 `npm run build`
 
 ### 下一步
 
-1. 在浏览器里手动走一遍“新增 -> 导出 -> 清空/替换 -> 导入恢复”的完整流程
-2. 如果还想继续完善资产管理，可以增加删除功能
-3. 如果想提升可控性，可以继续增加筛选、排序或手动分类
+1. 在浏览器里手动验证删除确认弹窗和退役卖出价对日均的展示是否符合你的使用习惯
+2. 如果后面想继续细化管理，可以补充真正的手动分类管理或排序能力

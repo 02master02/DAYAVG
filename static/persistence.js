@@ -26,8 +26,16 @@
                 typeof item.created_at === "string";
 
             const hasValidOptionalFields =
-                (item.retired_on === null || typeof item.retired_on === "string") &&
-                (item.retired_note === null || typeof item.retired_note === "string");
+                (item.category_key === undefined || item.category_key === null || typeof item.category_key === "string") &&
+                (item.item_note === undefined || item.item_note === null || typeof item.item_note === "string") &&
+                (item.retired_on === undefined || item.retired_on === null || typeof item.retired_on === "string") &&
+                (item.retired_reason === undefined || item.retired_reason === null || typeof item.retired_reason === "string") &&
+                (
+                    item.resale_price_cents === undefined ||
+                    item.resale_price_cents === null ||
+                    (Number.isInteger(item.resale_price_cents) && item.resale_price_cents >= 0)
+                ) &&
+                (item.retired_note === undefined || item.retired_note === null || typeof item.retired_note === "string");
 
             return hasValidRequiredFields && hasValidOptionalFields;
         });
@@ -96,8 +104,25 @@
         });
     }
 
+    function bindDeleteConfirm() {
+        const forms = document.querySelectorAll("[data-confirm-message]");
+        forms.forEach((form) => {
+            if (!(form instanceof HTMLFormElement)) {
+                return;
+            }
+
+            form.addEventListener("submit", (event) => {
+                const message = form.getAttribute("data-confirm-message") || "确认继续吗？";
+                if (!window.confirm(message)) {
+                    event.preventDefault();
+                }
+            });
+        });
+    }
+
     document.addEventListener("DOMContentLoaded", function () {
         syncSnapshotToLocalStorage();
         bindImportValidation();
+        bindDeleteConfirm();
     });
 })();

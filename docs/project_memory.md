@@ -10,7 +10,7 @@
 
 ## 3. 当前任务目标
 
-当前已完成 DayAvg V1.5：在保留新增、修改、图标分类和退役能力的基础上，补上 `localStorage` 快照持久化，以及 JSON 导入导出。
+当前已完成 DayAvg V1.6：在保留持久化和导入导出能力的基础上，补全资产编辑、删除和更完整的退役信息与成本计算。
 
 ## 4. 当前项目状态
 
@@ -18,12 +18,14 @@
 
 - 使用 `Flask + Jinja2 + SQLite` 实现网页应用
 - 提供首页录入表单、最近计算结果和资产卡片列表
-- 支持字段：`item_name`、`price`、`purchase_date`
-- 支持修改已有记录的价格和购买日期
+- 支持字段：`item_name`、`category_key`、`price`、`purchase_date`、`item_note`
+- 支持修改已有记录的名称、分类、价格、购买日期和资产备注
+- 支持删除已有记录，并在浏览器侧二次确认
 - 支持将物品标记为“已退役”或“恢复使用”
-- 支持手动设置 `retired_on` 和 `retired_note`
+- 支持手动设置 `retired_on`、`retired_reason`、`resale_price_cents` 和 `retired_note`
 - 正常物品按今天实时更新持有天数与日均值
 - 退役物品冻结在退役日期
+- 退役物品按“购买价格 - 二手卖出价格”计算实际成本和日均值
 - 提供汇总指标：
   - 总物品价值
   - 总日均
@@ -39,12 +41,10 @@
 
 ### 未完成
 
-- 删除历史记录
 - 图表展示
 - 登录或权限控制
 - 真正可交互的筛选和排序
-- 修改物品名称
-- 手动指定分类
+- 真正的分类管理配置页
 
 ### 当前可运行程度
 
@@ -54,16 +54,16 @@
 
 | 路径 | 作用 | 当前状态 |
 |---|---|---|
-| `src/app.py` | Flask 入口、路由、页面上下文组装、导入导出、编辑与退役流程 | 已完成 |
+| `src/app.py` | Flask 入口、路由、页面上下文组装、导入导出、编辑、删除与退役流程 | 已完成 |
 | `src/dayavg/config.py` | 默认配置与测试日期覆盖 | 已完成 |
-| `src/dayavg/services/calculator.py` | 动态时间计算、金额换算、状态求值 | 已完成 |
-| `src/dayavg/services/presentation.py` | 汇总指标、图标映射和分类回退逻辑 | 已完成 |
+| `src/dayavg/services/calculator.py` | 动态时间计算、金额换算、实际成本与状态求值 | 已完成 |
+| `src/dayavg/services/presentation.py` | 汇总指标、手动分类展示和图标映射 | 已完成 |
 | `src/dayavg/services/validation.py` | 新增、修改、退役设置表单校验 | 已完成 |
 | `src/dayavg/services/persistence.py` | JSON 导出结构和导入校验逻辑 | 已完成 |
-| `src/dayavg/storage/repository.py` | SQLite 初始化、插入、查询、更新和整批替换导入 | 已完成 |
-| `templates/index.html` | 首页仪表盘模板、编辑表单、退役表单、导入导出入口 | 已完成 |
-| `static/styles.css` | 页面样式与导入导出按钮样式 | 已完成 |
-| `static/persistence.js` | `localStorage` 快照同步与前端导入校验 | 已完成 |
+| `src/dayavg/storage/repository.py` | SQLite 初始化、插入、查询、更新、删除和整批替换导入 | 已完成 |
+| `templates/index.html` | 首页仪表盘模板、编辑表单、删除确认、退役表单、导入导出入口 | 已完成 |
+| `static/styles.css` | 页面样式与新增字段样式 | 已完成 |
+| `static/persistence.js` | `localStorage` 快照同步、前端导入校验和删除确认 | 已完成 |
 | `static/icons/` | 真实 PNG 图标资源 | 已完成 |
 | `tests/test_services.py` | 服务层测试 | 已完成 |
 | `tests/test_app.py` | Web 层测试 | 已完成 |
@@ -73,11 +73,15 @@
 
 ### 输入
 
-- `item_name`：文本，新增时必填
+- `item_name`：文本，新增和修改时必填
+- `category_key`：分类键，新增和修改时可选；为空时会按名称自动推断
 - `price`：正数，最多两位小数，新增和修改时必填
 - `purchase_date`：`YYYY-MM-DD`，不能晚于今天；退役物品修改时不能晚于退役日期
+- `item_note`：可选文本，最长 300 字
 - `retired_on`：`YYYY-MM-DD`，不能早于购买日期，不能晚于今天
-- `retired_note`：可选文本，最长 200 字
+- `retired_reason`：必填文本，最长 120 字
+- `resale_price`：可选数字，不能小于 0，也不能高于购买价格
+- `retired_note`：可选文本，最长 300 字
 - `import_file`：UTF-8 编码 JSON 文件，结构必须符合导出格式
 
 ### 输出
@@ -87,7 +91,7 @@
   - 总日均
   - 每件均价
   - 使用中数量 / 已退役数量
-  - 每个条目的总价、日均、购买日期、持有天数、真实图标、退役状态和退役备注
+  - 每个条目的总价、实际成本、日均、购买日期、持有天数、真实图标、退役状态、退役原因和备注
 - 数据存储：
   - SQLite 文件位于 `outputs/dayavg.db`
   - 浏览器端快照存储在 `localStorage["dayavg.assetSnapshot.v1"]`
@@ -102,8 +106,9 @@
 5. 通过“参考日期”控制状态：
    - 使用中：参考日期是今天
    - 已退役：参考日期是 `retired_on`
-6. 当前真实数据源仍然是 SQLite，`localStorage` 作为浏览器侧快照镜像
-7. 导入采用“校验通过后整批替换”策略，避免半成功状态
+6. 退役资产在日均计算时改用“实际成本”，即 `price_cents - resale_price_cents`
+7. 当前真实数据源仍然是 SQLite，`localStorage` 作为浏览器侧快照镜像
+8. 导入采用“校验通过后整批替换”策略，避免半成功状态
 
 ## 8. 已做过的重要决策
 
@@ -111,11 +116,11 @@
 |---|---|
 | 采用 Flask 而不是前后端分离 | 更适合这个局域网小应用的快速落地 |
 | 使用 SQLite 本地文件保存历史 | 无需外部服务，部署简单 |
-| 当前只允许修改价格和日期 | 与用户当前需求保持一致，避免扩大编辑范围 |
 | 图标改用用户提供的 PNG | 视觉更统一，也更符合用户预期 |
 | 没有专属图标时先判办公用品，再判生活用品，最后其他 | 这是用户明确指定的回退逻辑 |
 | 用 `retired_on` 而不是布尔值表示退役 | 退役后需要冻结到具体日期 |
-| 新增 `retired_note` 字段 | 允许记录退役原因或说明，且不影响计算逻辑 |
+| 分类允许手动指定，但仍保留名称推断兜底 | 兼顾用户可控性和旧数据兼容 |
+| 二手卖出价格不能高于购买价格 | 避免退役后出现负实际成本 |
 | 当前仓库不引入 `package.json` | 现有项目是 Flask 应用，不需要前端构建链 |
 | 导出 JSON 只保留稳定字段，导入时重新计算动态值 | 避免把过期的 held_days / daily_cost 当作可信源 |
 
@@ -125,6 +130,7 @@
 - SQLite 的 `Connection` 上下文管理器不会自动关闭连接，必须显式 `closing(...)`
 - `sqlite_sequence` 在当前环境不适合用 `ON CONFLICT` 更新，导入后改为先删后插更稳
 - 物品分类目前基于名称关键词启发式判断，不是严格分类系统
+- 旧版导出文件没有 `category_key`、`item_note`、`retired_reason` 和 `resale_price_cents`，导入时需要做兼容补全
 - 导入失败时必须在写库前报错，否则会污染现有数据
 
 ## 10. 当前运行命令
@@ -138,9 +144,10 @@ D:\Anaconda\python.exe src/app.py
 
 ```powershell
 D:\Anaconda\python.exe -m unittest discover -s tests -v
+D:\Anaconda\python.exe -m compileall src
 ```
 
-当前结果：31 个测试全部通过。
+当前结果：27 个测试全部通过，且 `src` 编译检查通过。
 
 ## 12. 当前依赖
 
@@ -152,8 +159,8 @@ Flask>=3.0,<4.0
 
 1. 浏览器手工验证 `localStorage["dayavg.assetSnapshot.v1"]` 是否按预期更新
 2. 手工验证“导出后再导入”的完整恢复流程
-3. 如果需要更完整管理，可增加删除功能
-4. 如果希望更细致控制，可新增手动分类和筛选排序
+3. 如果希望更细致控制，可新增真正的手动分类管理、筛选和排序
+4. 如果想补体验，可增加删除后的撤销提示或更细的危险操作提示
 
 ## 14. 给新对话 AI 的继续提示词
 
@@ -164,7 +171,7 @@ Flask>=3.0,<4.0
 - `docs/implementation_plan.md`
 - `docs/usage.md`
 
-当前项目已经完成 DayAvg V1.5，支持新增、查看、修改价格 / 购买日期、真实 PNG 图标自动分类、退役日期、退役备注、localStorage 快照持久化，以及 JSON 导入导出。
+当前项目已经完成 DayAvg V1.6，支持新增、查看、修改名称 / 分类 / 价格 / 购买日期 / 备注、删除、真实 PNG 图标分类、退役日期 / 原因 / 卖出价格 / 备注、localStorage 快照持久化，以及 JSON 导入导出。
 
 请继续遵守这些规则：
 1. 不要推翻现有的 Flask + SQLite 结构。
@@ -182,9 +189,11 @@ Flask>=3.0,<4.0
 5. 当前时间逻辑：
    - 使用中物品按今天实时更新
    - 退役物品按 `retired_on` 冻结
+   - 退役物品按 `price_cents - resale_price_cents` 计算实际成本和日均
 6. 当前本地持久化逻辑：
    - SQLite 是真实数据源
    - `localStorage["dayavg.assetSnapshot.v1"]` 保存浏览器快照
 7. 运行测试使用：
    - `D:\Anaconda\python.exe -m unittest discover -s tests -v`
+   - `D:\Anaconda\python.exe -m compileall src`
 ```
